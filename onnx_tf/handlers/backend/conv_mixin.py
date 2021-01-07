@@ -1,4 +1,5 @@
 import tensorflow as tf
+from tensorflow.python.ops.nn_ops import _get_sequence
 
 from onnx_tf.common import exception
 from onnx_tf.common import get_data_format
@@ -225,15 +226,27 @@ class ConvMixin(BroadcastMixin):
           convolved.append(conv_rs)
 
     else:
-      convolved = [
-          tf.nn.convolution(x,
-                            weight,
-                            padding=pad_mode,
-                            strides=strides,
-                            dilations=dilations,
-                            data_format=compute_format)
-          for (x, weight) in zip(xs, weight_groups)
-      ]
+      if group != weights.shape[-1]:
+          convolved = [
+              tf.nn.convolution(x,
+                                weight,
+                                padding=pad_mode,
+                                strides=strides,
+                                dilations=dilations,
+                                data_format=compute_format)
+              for (x, weight) in zip(xs, weight_groups)
+          ]
+      else:
+        convolved = [
+            tf.nn.depthwise_conv2d(
+                x,
+                tf.transpose(weights, [0, 1, 3, 2]),  # [filter_height, filter_width, in_channels, multiplier (=1)]
+                strides=_get_sequence(strides, 2, channel_index=3, name="strides"),  # requires a 4-d list
+                padding="VALID",
+                data_format=compute_format,
+                dilations=dilations,
+            )
+        ]
 
     if len(node.inputs) == 2:
       if sys_config.device == 'CUDA':
